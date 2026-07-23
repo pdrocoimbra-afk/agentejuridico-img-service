@@ -9,7 +9,7 @@ from PIL import Image, ImageDraw, ImageFont
 
 app = FastAPI()
 
-IMGBB_KEY = os.environ.get("IMGBB_KEY", "")
+IMGBB_KEY = os.environ.get("IMGBB_KEY", ""
 FONT_BOLD_PATH = "/tmp/Montserrat-Bold.ttf"
 FONT_REGULAR_PATH = "/tmp/Montserrat-Regular.ttf"
 
@@ -43,12 +43,12 @@ def upload_imgbb(image_bytes):
 def apply_gradient_overlay(img):
     w, h = img.size
     overlay = Image.new("RGBA", (w, h), (0, 0, 0, 0))
-    draw = ImageDraw.Draw(overlay)
-    fade_start = int(h * 0.30)
+        fade_start = int(h * 0.20)  # gradient starts earlier (20% from top)
     for y in range(fade_start, h):
         progress = (y - fade_start) / (h - fade_start)
-        alpha = int(225 * (progress ** 0.65))
-        draw.line([(0, y), (w - 1, y)], fill=(0, 5, 25, alpha))
+                # Steeper curve: bottom 50% is nearly pitch black
+                        alpha = int(255 * (progress ** 0.5))
+                draw.line([(0, y), (w - 1, y)], fill=(0, 3, 15, alpha))
     return Image.alpha_composite(img.convert("RGBA"), overlay).convert("RGB")
 
 

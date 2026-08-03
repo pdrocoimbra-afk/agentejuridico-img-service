@@ -30,10 +30,13 @@ def ensure_fonts():
     base = "https://github.com/JulietaUla/Montserrat/raw/master/fonts/ttf/"
     for path, filename in fonts:
         if not os.path.exists(path):
-            r = requests.get(base + filename, timeout=30)
-            r.raise_for_status()
-            with open(path, "wb") as f:
-                f.write(r.content)
+            try:
+                r = requests.get(base + filename, timeout=30, allow_redirects=True)
+                r.raise_for_status()
+                with open(path, "wb") as f:
+                    f.write(r.content)
+            except Exception as e:
+                raise HTTPException(status_code=500, detail=f"Font download failed ({filename}): {e}")
 
 
 def upload_imgbb(image_bytes: bytes) -> str:
@@ -53,7 +56,7 @@ def upload_imgbb(image_bytes: bytes) -> str:
 
 
 def apply_gradient_overlay(img: Image.Image) -> Image.Image:
-    """Apply dark overlay — starts at 40% from top with smooth easing."""
+    """Apply dark overlay -- starts at 40% from top with smooth easing."""
     w, h = img.size
     overlay = Image.new("RGBA", (w, h), (0, 0, 0, 0))
     draw = ImageDraw.Draw(overlay)
@@ -92,7 +95,7 @@ def extract_tema(estrategista_output: str) -> str:
             if len(val) > 25:
                 val = val[:25].rstrip()
             return val.upper()
-        if upper.startswith("TÓPICO:") or upper.startswith("TOPICO:"):
+        if upper.startswith("TOPICO:") or upper.startswith("TOPICO:"):
             val = part[part.index(":") + 1:].strip()
             if len(val) > 25:
                 val = val[:25].rstrip()
@@ -107,7 +110,7 @@ def draw_category_block(draw: ImageDraw.Draw, tema: str, w: int, h: int) -> int:
     """
     cx = w // 2
 
-    # Short gold bar — thin and centered, anchored visually above the label
+    # Short gold bar -- thin and centered, anchored visually above the label
     bar_y = int(h * 0.535)
     bar_half_w = int(w * 0.055)
     draw.rectangle(
@@ -161,12 +164,12 @@ def draw_headline(draw: ImageDraw.Draw, font, lines: list, line_h: int,
         y = start_y + i * line_h
         cx = w // 2
         draw.text((cx + 2, y + 3), line, font=font,
-                  fill=(*SHADOW, 200), anchor="mt")
+                  fill=SHADOW, anchor="mt")
         draw.text((cx, y), line, font=font, fill=WHITE, anchor="mt")
 
 
 def draw_brand_handle(draw: ImageDraw.Draw, handle: str, w: int, h: int):
-    """Draw brand handle — bottom center, subtle."""
+    """Draw brand handle -- bottom center, subtle."""
     font = ImageFont.truetype(FONT_LIGHT_PATH, 22)
     draw.text((w // 2, h - 22), handle, font=font,
               fill=(180, 180, 180), anchor="mb")
@@ -186,13 +189,24 @@ def compose(req: ComposeRequest):
 
     # 1. Download Ideogram background
     try:
-        resp = requests.get(req.image_url, timeout=30)
+        resp = requests.get(
+            req.image_url,
+            timeout=30,
+            headers={"User-Agent": "Mozilla/5.0 (compatible; AgentJuridico/1.0)"},
+            allow_redirects=True,
+        )
         resp.raise_for_status()
+        content_type = resp.headers.get("Content-Type", "")
+        if "image" not in content_type and not any(
+            req.image_url.lower().endswith(ext) for ext in (".jpg", ".jpeg", ".png", ".webp")
+        ):
+            raise ValueError(f"URL did not return an image (Content-Type: {content_type})")
+        img = Image.open(io.BytesIO(resp.content))
+        w, h = img.size
+    except HTTPException:
+        raise
     except Exception as e:
         raise HTTPException(status_code=400, detail=f"Failed to download image: {e}")
-
-    img = Image.open(io.BytesIO(resp.content))
-    w, h = img.size
 
     # 2. Dark gradient overlay
     img = apply_gradient_overlay(img)

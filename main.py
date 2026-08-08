@@ -1,6 +1,7 @@
 import os
 import io
 import uuid
+import random
 import textwrap
 import requests
 from pathlib import Path
@@ -159,10 +160,15 @@ def draw_brand_handle(draw, handle, w, h):
 
 
 def centered(draw, text, y, font, color, w=1080):
-    bbox = draw.textbbox((0, 0), text, font=font)
+    """Desenha texto centralizado. Usa anchor='lt' para comportamento
+    consistente entre versões do Pillow — y é sempre o TOPO do texto."""
+    bbox = draw.textbbox((0, 0), text, font=font, anchor="lt")
     tw = bbox[2] - bbox[0]
-    draw.text(((w - tw) // 2, y), text, font=font, fill=color)
-    return y + (bbox[3] - bbox[1]) + 10
+    x = (w - tw) // 2
+    draw.text((x, y), text, font=font, fill=color, anchor="lt")
+    # Retorna posição absoluta do fundo do texto + espaçamento
+    abs_bottom = draw.textbbox((x, y), text, font=font, anchor="lt")[3]
+    return abs_bottom + 10
 
 
 def centered_wrap(draw, text, y, font, color, w=1080, max_chars=32):
@@ -192,16 +198,31 @@ def watermark(draw, w=1080, h=1080):
 
 
 def background_with_noise(W, H):
-    """Fundo azul royal com gradiente sutil — evita chato liso."""
+    """Fundo azul royal com gradiente + grain cinematográfico.
+    O grain sutil (~6px de variação) elimina o visual 'digital liso'
+    e dá profundidade às imagens dado/alerta/meme."""
     img = Image.new("RGB", (W, H), ROYAL_BLUE)
     draw = ImageDraw.Draw(img)
-    # Gradiente sutil de cima para baixo
+    # Gradiente de cima para baixo
     for y in range(H):
         t = y / H
         r = int(ROYAL_BLUE[0] * (1 - t * 0.25))
         g = int(ROYAL_BLUE[1] * (1 - t * 0.15))
         b = int(ROYAL_BLUE[2] * (1 - t * 0.08))
         draw.line([(0, y), (W, y)], fill=(r, g, b))
+    # Grain cinematográfico sutil — seed fixo = resultado determinístico
+    rng = random.Random(7)
+    pixels = img.load()
+    for _ in range(W * H // 6):   # ~16% dos pixels afetados
+        px = rng.randint(0, W - 1)
+        py = rng.randint(0, H - 1)
+        d = rng.randint(-7, 7)
+        base = pixels[px, py]
+        pixels[px, py] = (
+            max(0, min(255, base[0] + d)),
+            max(0, min(255, base[1] + d)),
+            max(0, min(255, base[2] + d)),
+        )
     return img
 
 
@@ -259,48 +280,55 @@ def compose_dado(req: DadoRequest):
 
     gold_bar(draw, W)
 
-    # Label "DADO DO DIA" com ícone visual
-    f_label = ImageFont.truetype(FONT_BOLD_PATH, 30)
-    draw.text((W // 2, 48), "DADO DO DIA", font=f_label, fill=GOLD, anchor="mt")
+    # ── Label "DADO DO DIA" ──────────────────────────────────────────────────
+    f_label = ImageFont.truetype(FONT_BOLD_PATH, 28)
+    draw.text((W // 2, 36), "DADO DO DIA", font=f_label, fill=GOLD, anchor="mt")
+    gold_accent_line(draw, 80, W, margin=120)
 
-    # Número enorme — impacto visual principal
+    # ── Número principal — escolhe tamanho que cabe ───────────────────────────
     numero_txt = req.numero.upper()
-    for font_size in [220, 180, 150, 120]:
+    for font_size in [210, 170, 140, 115, 95]:
         f_num = ImageFont.truetype(FONT_BOLD_PATH, font_size)
-        bbox = draw.textbbox((0, 0), numero_txt, font=f_num)
-        if bbox[2] - bbox[0] < W * 0.88:
+        test_bbox = draw.textbbox((0, 0), numero_txt, font=f_num, anchor="lt")
+        if test_bbox[2] - test_bbox[0] < W * 0.84:
             break
-    bbox  = draw.textbbox((0, 0), numero_txt, font=f_num)
-    num_w = bbox[2] - bbox[0]
-    num_h = bbox[3] - bbox[1]
+
+    # Centraliza usando anchor="lt" para evitar erros de bearing
+    num_bbox_0 = draw.textbbox((0, 0), numero_txt, font=f_num, anchor="lt")
+    num_w = num_bbox_0[2] - num_bbox_0[0]
     num_x = (W - num_w) // 2
-    num_y = 100
-    # Sombra glow dourado
-    for offset in [4, 2]:
-        draw.text((num_x + offset, num_y + offset), numero_txt, font=f_num,
-                  fill=(*GOLD, 60))
-    draw.text((num_x, num_y), numero_txt, font=f_num, fill=WHITE)
+    num_y = 105
 
-    y = num_y + num_h + 12
+    # Glow dourado
+    for off in [4, 2]:
+        draw.text((num_x + off, num_y + off), numero_txt, font=f_num,
+                  fill=(*GOLD, 55), anchor="lt")
+    draw.text((num_x, num_y), numero_txt, font=f_num, fill=WHITE, anchor="lt")
 
-    # Unidade
+    # PONTO CRÍTICO: usa bbox ABSOLUTO do texto já renderizado para obter
+    # o fundo real, eliminando erros de offset entre versões do Pillow
+    abs_num_bbox = draw.textbbox((num_x, num_y), numero_txt, font=f_num, anchor="lt")
+    y = abs_num_bbox[3] + 18   # fundo absoluto + padding
+
+    # ── Unidade (ex: "dos desenvolvedores") ──────────────────────────────────
     if req.unidade:
-        f_uni = ImageFont.truetype(FONT_REGULAR_PATH, 48)
-        y = centered_wrap(draw, req.unidade.upper(), y, f_uni, GOLD, W, max_chars=28)
+        f_uni = ImageFont.truetype(FONT_REGULAR_PATH, 38)
+        y = centered_wrap(draw, req.unidade.upper(), y, f_uni, GOLD, W, max_chars=32)
+        y += 4
 
-    gold_accent_line(draw, y + 20, W)
-    y += 50
+    gold_accent_line(draw, y + 14, W)
+    y += 46
 
-    # Descrição
+    # ── Descrição ─────────────────────────────────────────────────────────────
     if req.descricao:
-        f_desc = ImageFont.truetype(FONT_REGULAR_PATH, 40)
-        y = centered_wrap(draw, req.descricao, y, f_desc, WHITE, W, max_chars=36)
+        f_desc = ImageFont.truetype(FONT_REGULAR_PATH, 36)
+        y = centered_wrap(draw, req.descricao, y, f_desc, WHITE, W, max_chars=38)
 
-    # CTA
-    if req.cta:
-        y_cta = max(y + 44, H - 160)
-        gold_accent_line(draw, y_cta - 18, W)
-        f_cta = ImageFont.truetype(FONT_BOLD_PATH, 36)
+    # ── CTA — posicionado logo após o conteúdo, sem gap ──────────────────────
+    if req.cta and y + 56 < H - 80:   # só desenha se couber
+        y_cta = y + 56
+        gold_accent_line(draw, y_cta - 20, W)
+        f_cta = ImageFont.truetype(FONT_BOLD_PATH, 34)
         centered_wrap(draw, req.cta, y_cta, f_cta, GOLD, W, max_chars=40)
 
     watermark(draw, W, H)
@@ -327,7 +355,7 @@ def compose_alerta(req: AlertaRequest):
 
     # "MITO" grande com destaque
     f_mito_title = ImageFont.truetype(FONT_BOLD_PATH, 100)
-    draw.text((W // 2, 40), "MITO", font=f_mito_title, fill=RED, anchor="mt")
+    draw.text((W // 2, 32), "MITO", font=f_mito_title, fill=RED, anchor="mt")
 
     # Ícone de alerta (triângulo) centralizado
     cx = W // 2
@@ -345,18 +373,18 @@ def compose_alerta(req: AlertaRequest):
     # Caixa do mito (fundo escuro-vermelho com borda)
     box_pad = 28
     f_mt = ImageFont.truetype(FONT_REGULAR_PATH, 42)
-    lines_m = textwrap.wrap(req.mito, width=28)
+    lines_m = textwrap.wrap(req.mito, width=28)[:2]  # máx 2 linhas — evita overflow
     box_h = len(lines_m) * 56 + box_pad * 2
     draw.rounded_rectangle([(50, y), (W - 50, y + box_h)],
                             radius=14, fill=(40, 5, 5), outline=(140, 30, 30), width=2)
     y_m = y + box_pad
     for line in lines_m:
-        bbox_m = draw.textbbox((0, 0), line, font=f_mt)
+        bbox_m = draw.textbbox((0, 0), line, font=f_mt, anchor="lt")
         lw = bbox_m[2] - bbox_m[0]
         lx = (W - lw) // 2
         # Texto riscado (tachado)
         draw.text((lx, y_m), line, font=f_mt, fill=(210, 80, 80))
-        mid = y_m + f_mt.size // 2 + 2
+        mid = y_m + 21 + 2   # 42 // 2 — font.size removido no Pillow 11
         draw.line([(lx, mid), (lx + lw, mid)], fill=(210, 80, 80), width=2)
         y_m += 56
     y += box_h + 32
@@ -375,10 +403,10 @@ def compose_alerta(req: AlertaRequest):
     y = centered_wrap(draw, req.verdade, y, f_vd, WHITE, W, max_chars=30)
 
     # CTA
-    if req.cta:
-        y_cta = max(y + 32, H - 150)
-        gold_accent_line(draw, y_cta - 16, W)
-        f_cta = ImageFont.truetype(FONT_BOLD_PATH, 36)
+    if req.cta and y + 50 < H - 80:   # só desenha se couber
+        y_cta = y + 50
+        gold_accent_line(draw, y_cta - 18, W)
+        f_cta = ImageFont.truetype(FONT_BOLD_PATH, 34)
         centered_wrap(draw, req.cta, y_cta, f_cta, GOLD, W, max_chars=42)
 
     watermark(draw, W, H)
@@ -421,18 +449,18 @@ def compose_meme(req: MemeRequest):
         f_reac = ImageFont.truetype(FONT_BOLD_PATH, font_size)
         lines_r = textwrap.wrap(reacao_txt, width=16)
         total_w = max(
-            draw.textbbox((0, 0), line, font=f_reac)[2]
+            draw.textbbox((0, 0), line, font=f_reac, anchor="lt")[2]
             for line in lines_r
         )
         if total_w < W * 0.90:
             break
     for line in lines_r:
-        bbox_r = draw.textbbox((0, 0), line, font=f_reac)
+        bbox_r = draw.textbbox((0, 0), line, font=f_reac, anchor="lt")
         rw = bbox_r[2] - bbox_r[0]
         # Sombra glow
         draw.text(((W - rw) // 2 + 3, y + 3), line, font=f_reac, fill=(*GOLD, 60))
         draw.text(((W - rw) // 2, y), line, font=f_reac, fill=GOLD)
-        y += int(f_reac.size * 1.12)
+        y += int(font_size * 1.12)   # font.size removido no Pillow 11
 
     gold_accent_line(draw, y + 18, W)
     y += 44
@@ -443,9 +471,10 @@ def compose_meme(req: MemeRequest):
         y = centered_wrap(draw, req.punchline, y, f_punch, WHITE, W, max_chars=28)
 
     # CTA
-    if req.cta:
-        y_cta = max(y + 40, H - 150)
-        f_cta = ImageFont.truetype(FONT_BOLD_PATH, 38)
+    if req.cta and y + 50 < H - 80:   # só desenha se couber
+        y_cta = y + 50
+        gold_accent_line(draw, y_cta - 18, W)
+        f_cta = ImageFont.truetype(FONT_BOLD_PATH, 36)
         centered_wrap(draw, req.cta, y_cta, f_cta, GOLD, W, max_chars=40)
 
     watermark(draw, W, H)
@@ -523,4 +552,4 @@ def serve_image(filename: str):
 
 @app.get("/health")
 def health():
-    return {"status": "ok", "version": "2.1"}
+    return {"status": "ok", "version": "2.4"}

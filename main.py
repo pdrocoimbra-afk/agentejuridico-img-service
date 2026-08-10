@@ -9,7 +9,6 @@ from fastapi import FastAPI, HTTPException, Form
 from fastapi.responses import FileResponse
 from pydantic import BaseModel
 from PIL import Image, ImageDraw, ImageFont
-
 app = FastAPI()
 
 FONT_BOLD_PATH    = "/tmp/Montserrat-Bold.ttf"
@@ -501,4 +500,4 @@ def compose_auto(
 
 @app.get("/health")
 def health():
-    return {"status": "ok", "version": "2.4"}
+    return {"status": "ok", "version": "2.5"}

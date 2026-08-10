@@ -5,7 +5,7 @@ import random
 import textwrap
 import requests
 from pathlib import Path
-from fastapi import FastAPI, HTTPException
+from fastapi import FastAPI, HTTPException, Form
 from fastapi.responses import FileResponse
 from pydantic import BaseModel
 from PIL import Image, ImageDraw, ImageFont
@@ -16,21 +16,21 @@ FONT_BOLD_PATH    = "/tmp/Montserrat-Bold.ttf"
 FONT_REGULAR_PATH = "/tmp/Montserrat-Regular.ttf"
 FONT_LIGHT_PATH   = "/tmp/Montserrat-Light.ttf"
 
-# Self-hosted image storage — sem dependência de ImgBB
+# Self-hosted image storage â sem dependÃªncia de ImgBB
 IMAGE_DIR = Path("/tmp/aj_images")
 IMAGE_DIR.mkdir(exist_ok=True)
 BASE_URL = os.environ.get("SERVICE_BASE_URL", "https://agentejuridico-img-service.onrender.com")
 
-# Brand colors — identidade visual @agentejuridico
-ROYAL_BLUE = (16, 64, 200)    # #1040C8 — fundo principal
-GOLD       = (250, 168, 0)    # #FAA800 — acento dourado
+# Brand colors â identidade visual @agentejuridico
+ROYAL_BLUE = (16, 64, 200)    # #1040C8 â fundo principal
+GOLD       = (250, 168, 0)    # #FAA800 â acento dourado
 WHITE      = (255, 255, 255)
 SHADOW     = (0, 0, 20)
-MUTED      = (180, 180, 210)  # cinza-azulado para textos secundários
+MUTED      = (180, 180, 210)  # cinza-azulado para textos secundÃ¡rios
 RED        = (210, 55, 55)    # alertas
 
 
-# ── Utilitários ──────────────────────────────────────────────────────────────
+# ââ UtilitÃ¡rios ââââââââââââââââââââââââââââââââââââââââââââââââââââââââââââââ
 
 def ensure_fonts():
     fonts = [
@@ -48,7 +48,7 @@ def ensure_fonts():
 
 
 def host_image(image_bytes: bytes, fmt: str = "JPEG") -> str:
-    """Salva imagem em /tmp e retorna URL pública do próprio serviço."""
+    """Salva imagem em /tmp e retorna URL pÃºblica do prÃ³prio serviÃ§o."""
     ext = "png" if fmt == "PNG" else "jpg"
     filename = f"{uuid.uuid4().hex[:12]}.{ext}"
     filepath = IMAGE_DIR / filename
@@ -66,7 +66,7 @@ def img_to_bytes(img: Image.Image, fmt: str = "JPEG") -> bytes:
 
 
 def apply_gradient_overlay(img: Image.Image) -> Image.Image:
-    """Degradê suave de azul-royal escuro cobrindo a metade inferior da imagem."""
+    """DegradÃª suave de azul-royal escuro cobrindo a metade inferior da imagem."""
     w, h = img.size
     overlay = Image.new("RGBA", (w, h), (0, 0, 0, 0))
     draw = ImageDraw.Draw(overlay)
@@ -93,28 +93,28 @@ def extract_headline(estrategista_output: str) -> str:
 
 
 def extract_tema(estrategista_output: str) -> str:
-    """Extrai o tópico do dia para exibir como label na imagem (máx 22 chars)."""
+    """Extrai o tÃ³pico do dia para exibir como label na imagem (mÃ¡x 22 chars)."""
     for part in estrategista_output.split("|"):
         part = part.strip()
         upper = part.upper()
         if upper.startswith("TEMA:"):
             val = part[5:].strip()
             return val[:22].rstrip().upper()
-        if upper.startswith("TOPICO:") or upper.startswith("TÓPICO:"):
+        if upper.startswith("TOPICO:") or upper.startswith("TÃPICO:"):
             val = part[part.index(":") + 1:].strip()
             return val[:22].rstrip().upper()
     return "PROPRIEDADE INTELECTUAL"
 
 
 def draw_category_block(draw, tema, w, h):
-    """Barra dourada + label do tópico no ponto de transição do degradê."""
+    """Barra dourada + label do tÃ³pico no ponto de transiÃ§Ã£o do degradÃª."""
     cx = w // 2
     bar_y = int(h * 0.525)
     bar_w = int(w * 0.12)
     draw.rectangle([cx - bar_w, bar_y, cx + bar_w, bar_y + 3], fill=GOLD)
 
     font = ImageFont.truetype(FONT_LIGHT_PATH, 22)
-    # Letra-espaçada apenas se o tema for curto (≤ 14 chars)
+    # Letra-espaÃ§ada apenas se o tema for curto (â¤ 14 chars)
     label = "  ".join(tema) if len(tema) <= 14 else tema
     label_y = bar_y + 3 + 14
     # Sombra
@@ -161,12 +161,12 @@ def draw_brand_handle(draw, handle, w, h):
 
 def centered(draw, text, y, font, color, w=1080):
     """Desenha texto centralizado. Usa anchor='lt' para comportamento
-    consistente entre versões do Pillow — y é sempre o TOPO do texto."""
+    consistente entre versÃµes do Pillow â y Ã© sempre o TOPO do texto."""
     bbox = draw.textbbox((0, 0), text, font=font, anchor="lt")
     tw = bbox[2] - bbox[0]
     x = (w - tw) // 2
     draw.text((x, y), text, font=font, fill=color, anchor="lt")
-    # Retorna posição absoluta do fundo do texto + espaçamento
+    # Retorna posiÃ§Ã£o absoluta do fundo do texto + espaÃ§amento
     abs_bottom = draw.textbbox((x, y), text, font=font, anchor="lt")[3]
     return abs_bottom + 10
 
@@ -183,7 +183,7 @@ def gold_bar(draw, w=1080):
 
 
 def gold_accent_line(draw, y, w=1080, margin=90):
-    """Linha dourada fina como divisor de seção."""
+    """Linha dourada fina como divisor de seÃ§Ã£o."""
     draw.line([(margin, y), (w - margin, y)], fill=(*GOLD, 140), width=2)
 
 
@@ -198,9 +198,9 @@ def watermark(draw, w=1080, h=1080):
 
 
 def background_with_noise(W, H):
-    """Fundo azul royal com gradiente + grain cinematográfico.
-    O grain sutil (~6px de variação) elimina o visual 'digital liso'
-    e dá profundidade às imagens dado/alerta/meme."""
+    """Fundo azul royal com gradiente + grain cinematogrÃ¡fico.
+    O grain sutil (~6px de variaÃ§Ã£o) elimina o visual 'digital liso'
+    e dÃ¡ profundidade Ã s imagens dado/alerta/meme."""
     img = Image.new("RGB", (W, H), ROYAL_BLUE)
     draw = ImageDraw.Draw(img)
     # Gradiente de cima para baixo
@@ -210,7 +210,7 @@ def background_with_noise(W, H):
         g = int(ROYAL_BLUE[1] * (1 - t * 0.15))
         b = int(ROYAL_BLUE[2] * (1 - t * 0.08))
         draw.line([(0, y), (W, y)], fill=(r, g, b))
-    # Grain cinematográfico sutil — seed fixo = resultado determinístico
+    # Grain cinematogrÃ¡fico sutil â seed fixo = resultado determinÃ­stico
     rng = random.Random(7)
     pixels = img.load()
     for _ in range(W * H // 6):   # ~16% dos pixels afetados
@@ -226,7 +226,7 @@ def background_with_noise(W, H):
     return img
 
 
-# ── /compose — fluxo existente (imagem AI + overlay de texto) ─────────────────
+# ââ /compose â fluxo existente (imagem AI + overlay de texto) âââââââââââââââââ
 
 class ComposeRequest(BaseModel):
     image_url: str
@@ -262,12 +262,12 @@ def compose(req: ComposeRequest):
     return {"composed_url": composed_url, "lines_rendered": lines}
 
 
-# ── /compose/dado — post de estatística impactante ────────────────────────────
+# ââ /compose/dado â post de estatÃ­stica impactante ââââââââââââââââââââââââââââ
 
 class DadoRequest(BaseModel):
     numero: str                    # "78%"  ou "200 mil"
     unidade: str = ""              # "das marcas no Brasil"
-    descricao: str = ""            # "são registradas sem pesquisa prévia de anterioridade"
+    descricao: str = ""            # "sÃ£o registradas sem pesquisa prÃ©via de anterioridade"
     cta: str = ""
 
 
@@ -280,12 +280,12 @@ def compose_dado(req: DadoRequest):
 
     gold_bar(draw, W)
 
-    # ── Label "DADO DO DIA" ──────────────────────────────────────────────────
+    # ââ Label "DADO DO DIA" ââââââââââââââââââââââââââââââââââââââââââââââââââ
     f_label = ImageFont.truetype(FONT_BOLD_PATH, 28)
     draw.text((W // 2, 36), "DADO DO DIA", font=f_label, fill=GOLD, anchor="mt")
     gold_accent_line(draw, 80, W, margin=120)
 
-    # ── Número principal — escolhe tamanho que cabe ───────────────────────────
+    # ââ NÃºmero principal â escolhe tamanho que cabe âââââââââââââââââââââââââââ
     numero_txt = req.numero.upper()
     for font_size in [210, 170, 140, 115, 95]:
         f_num = ImageFont.truetype(FONT_BOLD_PATH, font_size)
@@ -305,12 +305,12 @@ def compose_dado(req: DadoRequest):
                   fill=(*GOLD, 55), anchor="lt")
     draw.text((num_x, num_y), numero_txt, font=f_num, fill=WHITE, anchor="lt")
 
-    # PONTO CRÍTICO: usa bbox ABSOLUTO do texto já renderizado para obter
-    # o fundo real, eliminando erros de offset entre versões do Pillow
+    # PONTO CRÃTICO: usa bbox ABSOLUTO do texto jÃ¡ renderizado para obter
+    # o fundo real, eliminando erros de offset entre versÃµes do Pillow
     abs_num_bbox = draw.textbbox((num_x, num_y), numero_txt, font=f_num, anchor="lt")
     y = abs_num_bbox[3] + 18   # fundo absoluto + padding
 
-    # ── Unidade (ex: "dos desenvolvedores") ──────────────────────────────────
+    # ââ Unidade (ex: "dos desenvolvedores") ââââââââââââââââââââââââââââââââââ
     if req.unidade:
         f_uni = ImageFont.truetype(FONT_REGULAR_PATH, 38)
         y = centered_wrap(draw, req.unidade.upper(), y, f_uni, GOLD, W, max_chars=32)
@@ -319,13 +319,13 @@ def compose_dado(req: DadoRequest):
     gold_accent_line(draw, y + 14, W)
     y += 46
 
-    # ── Descrição ─────────────────────────────────────────────────────────────
+    # ââ DescriÃ§Ã£o âââââââââââââââââââââââââââââââââââââââââââââââââââââââââââââ
     if req.descricao:
         f_desc = ImageFont.truetype(FONT_REGULAR_PATH, 36)
         y = centered_wrap(draw, req.descricao, y, f_desc, WHITE, W, max_chars=38)
 
-    # ── CTA — posicionado logo após o conteúdo, sem gap ──────────────────────
-    if req.cta and y + 56 < H - 80:   # só desenha se couber
+    # ââ CTA â posicionado logo apÃ³s o conteÃºdo, sem gap ââââââââââââââââââââââ
+    if req.cta and y + 56 < H - 80:   # sÃ³ desenha se couber
         y_cta = y + 56
         gold_accent_line(draw, y_cta - 20, W)
         f_cta = ImageFont.truetype(FONT_BOLD_PATH, 34)
@@ -335,11 +335,11 @@ def compose_dado(req: DadoRequest):
     return {"composed_url": host_image(img_to_bytes(img, "PNG"), "PNG")}
 
 
-# ── /compose/alerta — mito vs verdade ─────────────────────────────────────────
+# ââ /compose/alerta â mito vs verdade âââââââââââââââââââââââââââââââââââââââââ
 
 class AlertaRequest(BaseModel):
-    mito: str                      # "CNPJ já protege sua marca"
-    verdade: str                   # "São documentos completamente diferentes"
+    mito: str                      # "CNPJ jÃ¡ protege sua marca"
+    verdade: str                   # "SÃ£o documentos completamente diferentes"
     cta: str = ""
 
 
@@ -357,7 +357,7 @@ def compose_alerta(req: AlertaRequest):
     f_mito_title = ImageFont.truetype(FONT_BOLD_PATH, 100)
     draw.text((W // 2, 32), "MITO", font=f_mito_title, fill=RED, anchor="mt")
 
-    # Ícone de alerta (triângulo) centralizado
+    # Ãcone de alerta (triÃ¢ngulo) centralizado
     cx = W // 2
     tri_y = 175
     tri_s = 68
@@ -373,7 +373,7 @@ def compose_alerta(req: AlertaRequest):
     # Caixa do mito (fundo escuro-vermelho com borda)
     box_pad = 28
     f_mt = ImageFont.truetype(FONT_REGULAR_PATH, 42)
-    lines_m = textwrap.wrap(req.mito, width=28)[:2]  # máx 2 linhas — evita overflow
+    lines_m = textwrap.wrap(req.mito, width=28)[:2]  # mÃ¡x 2 linhas â evita overflow
     box_h = len(lines_m) * 56 + box_pad * 2
     draw.rounded_rectangle([(50, y), (W - 50, y + box_h)],
                             radius=14, fill=(40, 5, 5), outline=(140, 30, 30), width=2)
@@ -384,7 +384,7 @@ def compose_alerta(req: AlertaRequest):
         lx = (W - lw) // 2
         # Texto riscado (tachado)
         draw.text((lx, y_m), line, font=f_mt, fill=(210, 80, 80))
-        mid = y_m + 21 + 2   # 42 // 2 — font.size removido no Pillow 11
+        mid = y_m + 21 + 2   # 42 // 2 â font.size removido no Pillow 11
         draw.line([(lx, mid), (lx + lw, mid)], fill=(210, 80, 80), width=2)
         y_m += 56
     y += box_h + 32
@@ -403,7 +403,7 @@ def compose_alerta(req: AlertaRequest):
     y = centered_wrap(draw, req.verdade, y, f_vd, WHITE, W, max_chars=30)
 
     # CTA
-    if req.cta and y + 50 < H - 80:   # só desenha se couber
+    if req.cta and y + 50 < H - 80:   # sÃ³ desenha se couber
         y_cta = y + 50
         gold_accent_line(draw, y_cta - 18, W)
         f_cta = ImageFont.truetype(FONT_BOLD_PATH, 34)
@@ -413,12 +413,12 @@ def compose_alerta(req: AlertaRequest):
     return {"composed_url": host_image(img_to_bytes(img, "PNG"), "PNG")}
 
 
-# ── /compose/meme — ironia jurídica ───────────────────────────────────────────
+# ââ /compose/meme â ironia jurÃ­dica âââââââââââââââââââââââââââââââââââââââââââ
 
 class MemeRequest(BaseModel):
     setup: str                     # "Quando o cliente acha que CNPJ protege a marca"
-    reacao: str = "SÉRIO MESMO?"   # Texto grande no centro
-    punchline: str = ""            # "CNPJ não protege nada. Só o registro de marca."
+    reacao: str = "SÃRIO MESMO?"   # Texto grande no centro
+    punchline: str = ""            # "CNPJ nÃ£o protege nada. SÃ³ o registro de marca."
     cta: str = ""
 
 
@@ -443,7 +443,7 @@ def compose_meme(req: MemeRequest):
     gold_accent_line(draw, y + 18, W)
     y += 50
 
-    # Reação central — dourado, grande, impacto
+    # ReaÃ§Ã£o central â dourado, grande, impacto
     reacao_txt = req.reacao.upper()
     for font_size in [110, 90, 72, 58]:
         f_reac = ImageFont.truetype(FONT_BOLD_PATH, font_size)
@@ -471,7 +471,7 @@ def compose_meme(req: MemeRequest):
         y = centered_wrap(draw, req.punchline, y, f_punch, WHITE, W, max_chars=28)
 
     # CTA
-    if req.cta and y + 50 < H - 80:   # só desenha se couber
+    if req.cta and y + 50 < H - 80:   # sÃ³ desenha se couber
         y_cta = y + 50
         gold_accent_line(draw, y_cta - 18, W)
         f_cta = ImageFont.truetype(FONT_BOLD_PATH, 36)
@@ -481,7 +481,7 @@ def compose_meme(req: MemeRequest):
     return {"composed_url": host_image(img_to_bytes(img, "PNG"), "PNG")}
 
 
-# ── /compose/auto — roteamento automático por FORMATO ────────────────────────
+# ââ /compose/auto â roteamento automÃ¡tico por FORMATO ââââââââââââââââââââââââ
 
 def extract_field(text: str, field: str) -> str:
     """Extrai FIELD: valor do output pipe-separado do Estrategista."""
@@ -502,10 +502,10 @@ class AutoRequest(BaseModel):
 def compose_auto(req: AutoRequest):
     """
     Detecta FORMATO no estrategista_output e roteia:
-      padrao → /compose   (usa image_url + overlay de texto sobre imagem AI)
-      dado   → /compose/dado   (estatística em destaque sobre fundo royal blue)
-      alerta → /compose/alerta (mito vs verdade)
-      meme   → /compose/meme   (ironia profissional)
+      padrao â /compose   (usa image_url + overlay de texto sobre imagem AI)
+      dado   â /compose/dado   (estatÃ­stica em destaque sobre fundo royal blue)
+      alerta â /compose/alerta (mito vs verdade)
+      meme   â /compose/meme   (ironia profissional)
     """
     formato = extract_field(req.estrategista_output, "FORMATO").lower().strip()
     cta = extract_field(req.estrategista_output, "CTA")
@@ -523,13 +523,13 @@ def compose_auto(req: AutoRequest):
 
     elif formato == "meme":
         setup     = extract_field(req.estrategista_output, "EXTRA1") or extract_field(req.estrategista_output, "SETUP")
-        reacao    = extract_field(req.estrategista_output, "EXTRA2") or "SÉRIO MESMO?"
+        reacao    = extract_field(req.estrategista_output, "EXTRA2") or "SÃRIO MESMO?"
         punchline = extract_field(req.estrategista_output, "EXTRA3") or extract_field(req.estrategista_output, "PUNCHLINE")
         return compose_meme(MemeRequest(setup=setup, reacao=reacao, punchline=punchline, cta=cta))
 
     else:  # padrao (default)
         if not req.image_url:
-            raise HTTPException(status_code=400, detail="image_url obrigatório para formato padrao")
+            raise HTTPException(status_code=400, detail="image_url obrigatÃ³rio para formato padrao")
         return compose(ComposeRequest(
             image_url=req.image_url,
             estrategista_output=req.estrategista_output,
@@ -537,7 +537,7 @@ def compose_auto(req: AutoRequest):
         ))
 
 
-# ── Servir imagens hospedadas localmente ─────────────────────────────────────
+# ââ Servir imagens hospedadas localmente âââââââââââââââââââââââââââââââââââââ
 
 @app.get("/image/{filename}")
 def serve_image(filename: str):
@@ -548,7 +548,24 @@ def serve_image(filename: str):
     return FileResponse(filepath, media_type=media_type)
 
 
-# ── Health check ─────────────────────────────────────────────────────────────
+# ââ Health check âââââââââââââââââââââââââââââââââââââââââââââââââââââââââââââ
+
+
+# ── /compose/auto — form-data endpoint (for Make.com legacy HTTP module) ──────
+
+@app.post("/compose/auto")
+def compose_auto(
+    image_url: str = Form(...),
+    estrategista_output: str = Form(...),
+    brand_handle: str = Form("@agentejuridico"),
+):
+    req = ComposeRequest(
+        image_url=image_url,
+        estrategista_output=estrategista_output,
+        brand_handle=brand_handle,
+    )
+    return compose(req)
+
 
 @app.get("/health")
 def health():

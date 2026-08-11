@@ -4,7 +4,7 @@ import uuid
 import base64
 import textwrap
 import requests
-from fastapi import FastAPI, HTTPException, Form
+from fastapi import FastAPI, HTTPException
 from fastapi.responses import Response
 from pydantic import BaseModel
 from PIL import Image, ImageDraw, ImageFont
@@ -186,16 +186,12 @@ def compose(req: ComposeRequest):
 
 
 @app.post("/compose/auto")
-def compose_auto(
-    image_url: str = Form(...),
-    estrategista_output: str = Form(...),
-    brand_handle: str = Form("@agentejuridico"),
-):
-    image_bytes = _compose_image(image_url, estrategista_output, brand_handle)
+def compose_auto(req: ComposeRequest):
+    image_bytes = _compose_image(req.image_url, req.estrategista_output, req.brand_handle)
     composed_url = store_image(image_bytes)
     return {"composed_url": composed_url, "status": "ok"}
 
 
 @app.get("/health")
 def health():
-    return {"status": "ok", "version": "2.6"}
+    return {"status": "ok", "version": "2.7"}

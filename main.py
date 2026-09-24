@@ -29,9 +29,9 @@ SHADOW = (0, 0, 10)
 
 def ensure_fonts():
     fonts = [
-        (FONT_BOLD_PATH,    "Montserrat-Bold.ttf"),
+        (FONT_BOLD_PATH, "Montserrat-Bold.ttf"),
         (FONT_REGULAR_PATH, "Montserrat-Regular.ttf"),
-        (FONT_LIGHT_PATH,   "Montserrat-Light.ttf"),
+        (FONT_LIGHT_PATH, "Montserrat-Light.ttf"),
     ]
     base = "https://github.com/JulietaUla/Montserrat/raw/master/fonts/ttf/"
     for path, filename in fonts:
@@ -73,18 +73,43 @@ def apply_gradient_overlay(img: Image.Image) -> Image.Image:
 
 
 def extract_headline(estrategista_output: str) -> str:
+    # 1. Formato novo: quebras de linha + "GANCHO DE ABERTURA:"
+    for line in estrategista_output.split("\n"):
+        line = line.strip()
+        upper = line.upper()
+        if upper.startswith("GANCHO DE ABERTURA:"):
+            return line[19:].strip()
+        if upper.startswith("HEADLINE:"):
+            return line[9:].strip()
+        if upper.startswith("HOOK:"):
+            return line[5:].strip()
+    # 2. Formato legado: pipe-separado
     for part in estrategista_output.split("|"):
         part = part.strip()
-        if part.upper().startswith("HEADLINE:"):
+        upper = part.upper()
+        if upper.startswith("HEADLINE:"):
             return part[9:].strip()
-    for part in estrategista_output.split("|"):
-        part = part.strip()
-        if part.upper().startswith("HOOK:"):
+        if upper.startswith("HOOK:"):
             return part[5:].strip()
-    return "Proteja sua marca agora"
+    return "Proteja sua marca"
 
 
 def extract_tema(estrategista_output: str) -> str:
+    # 1. Formato novo: quebras de linha
+    for line in estrategista_output.split("\n"):
+        line = line.strip()
+        upper = line.upper()
+        if upper.startswith("TÓPICO:") or upper.startswith("TOPICO:"):
+            val = line[line.index(":") + 1:].strip()
+            if len(val) > 25:
+                val = val[:25].rstrip()
+            return val.upper()
+        if upper.startswith("FORMATO_DO_DIA:"):
+            val = line[15:].strip()
+            if len(val) > 25:
+                val = val[:25].rstrip()
+            return val.upper()
+    # 2. Formato legado: pipe-separado
     for part in estrategista_output.split("|"):
         part = part.strip()
         upper = part.upper()
@@ -107,7 +132,7 @@ def draw_category_block(draw: ImageDraw.Draw, tema: str, w: int, h: int) -> int:
     bar_half_w = int(w * 0.055)
     draw.rectangle([cx - bar_half_w, bar_y, cx + bar_half_w, bar_y + 3], fill=GOLD)
     font = ImageFont.truetype(FONT_LIGHT_PATH, 20)
-    spaced = "  ".join(tema)
+    spaced = " ".join(tema)
     label_y = bar_y + 3 + 12
     draw.text((cx + 1, label_y + 1), spaced, font=font, fill=(0, 0, 0), anchor="mt")
     draw.text((cx, label_y), spaced, font=font, fill=GOLD, anchor="mt")
@@ -194,4 +219,4 @@ def compose_auto(req: ComposeRequest):
 
 @app.get("/health")
 def health():
-    return {"status": "ok", "version": "2.7"}
+    return {"status": "ok", "version": "2.8"}

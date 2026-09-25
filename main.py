@@ -8,7 +8,6 @@ from fastapi import FastAPI, HTTPException
 from fastapi.responses import Response
 from pydantic import BaseModel
 from PIL import Image, ImageDraw, ImageFont
-
 app = FastAPI()
 
 # In-memory image store — serves images without 3rd-party CDN
@@ -72,32 +71,49 @@ def apply_gradient_overlay(img: Image.Image) -> Image.Image:
     return result.convert("RGB")
 
 
+def _clean_md(line: str) -> str:
+    """Remove Markdown bold/italic markers (**) from a line."""
+    return line.replace("**", "").replace("__", "").strip()
+
+
 def extract_headline(estrategista_output: str) -> str:
-    # 1. Formato novo: quebras de linha + "GANCHO DE ABERTURA:"
-    for line in estrategista_output.split("\n"):
-        line = line.strip()
+    # 1. Formato Markdown: "**GANCHO DE ABERTURA:**" (valor pode estar na linha seguinte)
+    lines = estrategista_output.split("\n")
+    for i, raw_line in enumerate(lines):
+        line = _clean_md(raw_line.strip())
         upper = line.upper()
         if upper.startswith("GANCHO DE ABERTURA:"):
-            return line[19:].strip()
+            val = line[19:].strip().strip('"').strip("'").strip()
+            if val:
+                return val
+            # Valor na proxima linha nao-vazia
+            for j in range(i + 1, min(i + 4, len(lines))):
+                next_val = _clean_md(lines[j].strip()).strip('"').strip("'").strip()
+                if next_val and not next_val.upper().startswith("**"):
+                    return next_val
+        elif upper.startswith("HEADLINE:"):
+            val = line[9:].strip().strip('"').strip()
+            if val:
+                return val
+        elif upper.startswith("HOOK:"):
+            val = line[5:].strip().strip('"').strip()
+            if val:
+                return val
+    # 2. Formato legado: pipe-separado
+    for part in estrategista_output.split("|"):
+        line = _clean_md(part.strip())
+        upper = line.upper()
         if upper.startswith("HEADLINE:"):
             return line[9:].strip()
         if upper.startswith("HOOK:"):
             return line[5:].strip()
-    # 2. Formato legado: pipe-separado
-    for part in estrategista_output.split("|"):
-        part = part.strip()
-        upper = part.upper()
-        if upper.startswith("HEADLINE:"):
-            return part[9:].strip()
-        if upper.startswith("HOOK:"):
-            return part[5:].strip()
     return "Proteja sua marca"
 
 
 def extract_tema(estrategista_output: str) -> str:
-    # 1. Formato novo: quebras de linha
-    for line in estrategista_output.split("\n"):
-        line = line.strip()
+    # 1. Formato Markdown: "**TOPICO:** valor" ou "**FORMATO_DO_DIA:** valor"
+    for raw_line in estrategista_output.split("\n"):
+        line = _clean_md(raw_line.strip())
         upper = line.upper()
         if upper.startswith("TÓPICO:") or upper.startswith("TOPICO:"):
             val = line[line.index(":") + 1:].strip()
@@ -111,15 +127,15 @@ def extract_tema(estrategista_output: str) -> str:
             return val.upper()
     # 2. Formato legado: pipe-separado
     for part in estrategista_output.split("|"):
-        part = part.strip()
-        upper = part.upper()
+        line = _clean_md(part.strip())
+        upper = line.upper()
         if upper.startswith("TEMA:"):
-            val = part[5:].strip()
+            val = line[5:].strip()
             if len(val) > 25:
                 val = val[:25].rstrip()
             return val.upper()
         if upper.startswith("TOPICO:"):
-            val = part[part.index(":") + 1:].strip()
+            val = line[line.index(":") + 1:].strip()
             if len(val) > 25:
                 val = val[:25].rstrip()
             return val.upper()
@@ -219,4 +235,4 @@ def compose_auto(req: ComposeRequest):
 
 @app.get("/health")
 def health():
-    return {"status": "ok", "version": "2.8"}
+    return {"status": "ok", "version": "2.9"}

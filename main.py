@@ -1,36 +1,31 @@
 import os
 import io
-import uuid
 import base64
 import textwrap
 import requests
 from fastapi import FastAPI, HTTPException
-from fastapi.responses import Response
 from pydantic import BaseModel
 from PIL import Image, ImageDraw, ImageFont
+
 app = FastAPI()
 
-# In-memory image store — serves images without 3rd-party CDN
-IMAGE_STORE: dict = {}
-
-RENDER_URL = os.environ.get(
-    "RENDER_EXTERNAL_URL", "https://agentejuridico-img-service.onrender.com"
-)
 IMGBB_KEY = os.environ.get("IMGBB_KEY", "")
 FONT_BOLD_PATH = "/tmp/Montserrat-Bold.ttf"
 FONT_REGULAR_PATH = "/tmp/Montserrat-Regular.ttf"
 FONT_LIGHT_PATH = "/tmp/Montserrat-Light.ttf"
 
-GOLD = (250, 168, 0)
+# Brand colors
+GOLD = (250, 168, 0)        # #FAA800
 WHITE = (255, 255, 255)
 SHADOW = (0, 0, 10)
 
 
 def ensure_fonts():
+    """Download Montserrat fonts if not cached."""
     fonts = [
-        (FONT_BOLD_PATH, "Montserrat-Bold.ttf"),
+        (FONT_BOLD_PATH,    "Montserrat-Bold.ttf"),
         (FONT_REGULAR_PATH, "Montserrat-Regular.ttf"),
-        (FONT_LIGHT_PATH, "Montserrat-Light.ttf"),
+        (FONT_LIGHT_PATH,   "Montserrat-Light.ttf"),
     ]
     base = "https://github.com/JulietaUla/Montserrat/raw/master/fonts/ttf/"
     for path, filename in fonts:
@@ -41,104 +36,101 @@ def ensure_fonts():
                 f.write(r.content)
 
 
-def store_image(image_bytes: bytes) -> str:
-    image_id = str(uuid.uuid4())
-    IMAGE_STORE[image_id] = image_bytes
-    if len(IMAGE_STORE) > 20:
-        oldest_key = next(iter(IMAGE_STORE))
-        del IMAGE_STORE[oldest_key]
-    return f"{RENDER_URL}/img/{image_id}"
-
-
-@app.get("/img/{image_id}")
-def serve_image(image_id: str):
-    if image_id not in IMAGE_STORE:
-        raise HTTPException(status_code=404, detail="Image not found or expired")
-    return Response(content=IMAGE_STORE[image_id], media_type="image/jpeg")
+def upload_imgbb(image_bytes: bytes) -> str:
+    """Upload image bytes to imgbb and return public URL."""
+    if not IMGBB_KEY:
+        raise HTTPException(status_code=500, detail="IMGBB_KEY not configured")
+    b64 = base64.b64encode(image_bytes).decode()
+    r = requests.post(
+        "https://api.imgbb.com/1/upload",
+        data={"key": IMGBB_KEY, "image": b64},
+        timeout=30,
+    )
+    data = r.json()
+    if not data.get("success"):
+        raise HTTPException(status_code=500, detail=f"imgbb error: {data}")
+    return data["data"]["url"]
 
 
 def apply_gradient_overlay(img: Image.Image) -> Image.Image:
+    """Apply dark overlay — starts at 40% from top with smooth easing."""
     w, h = img.size
     overlay = Image.new("RGBA", (w, h), (0, 0, 0, 0))
     draw = ImageDraw.Draw(overlay)
+
     fade_start = int(h * 0.40)
     for y in range(fade_start, h):
         progress = (y - fade_start) / (h - fade_start)
         alpha = int(255 * (progress ** 1.5))
         draw.line([(0, y), (w - 1, y)], fill=(0, 3, 15, alpha))
+
     img_rgba = img.convert("RGBA")
     result = Image.alpha_composite(img_rgba, overlay)
     return result.convert("RGB")
 
 
 def _clean_md(line: str) -> str:
-    """Remove Markdown bold/italic markers (**) from a line."""
+    """Remove Markdown bold/italic markers from a line."""
     return line.replace("**", "").replace("__", "").strip()
 
 
 def extract_headline(estrategista_output: str) -> str:
-    # 1. Formato Markdown: "**GANCHO DE ABERTURA:**" (valor pode estar na linha seguinte)
+    """Extract GANCHO DE ABERTURA / HEADLINE / HOOK from Estrategista output."""
+    # 1. Newline-separated format (current Estrategista prompt)
     lines = estrategista_output.split("\n")
     for i, raw_line in enumerate(lines):
         line = _clean_md(raw_line.strip())
         upper = line.upper()
         if upper.startswith("GANCHO DE ABERTURA:"):
-            val = line[19:].strip().strip('"').strip("'").strip()
+            val = line[19:].strip().strip('"').strip("'")
             if val:
                 return val
-            # Valor na proxima linha nao-vazia
+            # Value may be on the next non-empty line
             for j in range(i + 1, min(i + 4, len(lines))):
-                next_val = _clean_md(lines[j].strip()).strip('"').strip("'").strip()
-                if next_val and not next_val.upper().startswith("**"):
-                    return next_val
+                nxt = _clean_md(lines[j].strip()).strip('"').strip("'")
+                if nxt and not nxt.upper().startswith("DESENVOLVIMENTO") and not nxt.upper().startswith("TOM:"):
+                    return nxt
         elif upper.startswith("HEADLINE:"):
-            val = line[9:].strip().strip('"').strip()
+            val = line[9:].strip().strip('"')
             if val:
                 return val
         elif upper.startswith("HOOK:"):
-            val = line[5:].strip().strip('"').strip()
+            val = line[5:].strip().strip('"')
             if val:
                 return val
-    # 2. Formato legado: pipe-separado
+    # 2. Legacy pipe-separated format
     for part in estrategista_output.split("|"):
-        line = _clean_md(part.strip())
-        upper = line.upper()
+        part = _clean_md(part.strip())
+        upper = part.upper()
         if upper.startswith("HEADLINE:"):
-            return line[9:].strip()
+            return part[9:].strip()
         if upper.startswith("HOOK:"):
-            return line[5:].strip()
+            return part[5:].strip()
     return "Proteja sua marca"
 
 
 def extract_tema(estrategista_output: str) -> str:
-    # 1. Formato Markdown: "**TOPICO:** valor" ou "**FORMATO_DO_DIA:** valor"
+    """Extract TÓPICO / TEMA / FORMATO_DO_DIA from Estrategista output."""
+    # 1. Newline-separated format
     for raw_line in estrategista_output.split("\n"):
         line = _clean_md(raw_line.strip())
         upper = line.upper()
         if upper.startswith("TÓPICO:") or upper.startswith("TOPICO:"):
             val = line[line.index(":") + 1:].strip()
-            if len(val) > 25:
-                val = val[:25].rstrip()
-            return val.upper()
+            return val[:25].rstrip().upper() if len(val) > 25 else val.upper()
         if upper.startswith("FORMATO_DO_DIA:"):
             val = line[15:].strip()
-            if len(val) > 25:
-                val = val[:25].rstrip()
-            return val.upper()
-    # 2. Formato legado: pipe-separado
+            return val[:25].rstrip().upper() if len(val) > 25 else val.upper()
+    # 2. Legacy pipe-separated format
     for part in estrategista_output.split("|"):
-        line = _clean_md(part.strip())
-        upper = line.upper()
+        part = _clean_md(part.strip())
+        upper = part.upper()
         if upper.startswith("TEMA:"):
-            val = line[5:].strip()
-            if len(val) > 25:
-                val = val[:25].rstrip()
-            return val.upper()
-        if upper.startswith("TOPICO:"):
-            val = line[line.index(":") + 1:].strip()
-            if len(val) > 25:
-                val = val[:25].rstrip()
-            return val.upper()
+            val = part[5:].strip()
+            return val[:25].rstrip().upper() if len(val) > 25 else val.upper()
+        if upper.startswith("TÓPICO:") or upper.startswith("TOPICO:"):
+            val = part[part.index(":") + 1:].strip()
+            return val[:25].rstrip().upper() if len(val) > 25 else val.upper()
     return "DIREITO EMPRESARIAL"
 
 
@@ -146,9 +138,12 @@ def draw_category_block(draw: ImageDraw.Draw, tema: str, w: int, h: int) -> int:
     cx = w // 2
     bar_y = int(h * 0.535)
     bar_half_w = int(w * 0.055)
-    draw.rectangle([cx - bar_half_w, bar_y, cx + bar_half_w, bar_y + 3], fill=GOLD)
+    draw.rectangle(
+        [cx - bar_half_w, bar_y, cx + bar_half_w, bar_y + 3],
+        fill=GOLD,
+    )
     font = ImageFont.truetype(FONT_LIGHT_PATH, 20)
-    spaced = " ".join(tema)
+    spaced = "  ".join(tema)
     label_y = bar_y + 3 + 12
     draw.text((cx + 1, label_y + 1), spaced, font=font, fill=(0, 0, 0), anchor="mt")
     draw.text((cx, label_y), spaced, font=font, fill=GOLD, anchor="mt")
@@ -159,6 +154,7 @@ def fit_headline(draw: ImageDraw.Draw, headline: str, w: int, h: int, text_top: 
     max_text_w = int(w * 0.84)
     text_bottom = int(h * 0.91)
     available_h = text_bottom - text_top
+
     for font_size in range(90, 26, -3):
         font = ImageFont.truetype(FONT_BOLD_PATH, font_size)
         bbox = font.getbbox("W")
@@ -167,8 +163,10 @@ def fit_headline(draw: ImageDraw.Draw, headline: str, w: int, h: int, text_top: 
         lines = textwrap.wrap(headline, width=chars_per_line)
         line_h = int(font_size * 1.22)
         total_h = len(lines) * line_h
+
         if total_h <= available_h and len(lines) <= 4:
             return font, lines, line_h, text_top, text_bottom
+
     font = ImageFont.truetype(FONT_BOLD_PATH, 30)
     lines = textwrap.wrap(headline, width=22)[:4]
     return font, lines, 38, text_top, text_bottom
@@ -190,49 +188,51 @@ def draw_brand_handle(draw: ImageDraw.Draw, handle: str, w: int, h: int):
     draw.text((w // 2, h - 22), handle, font=font, fill=(180, 180, 180), anchor="mb")
 
 
-def _compose_image(image_url: str, estrategista_output: str, brand_handle: str) -> bytes:
-    headline = extract_headline(estrategista_output)
-    tema = extract_tema(estrategista_output)
-    ensure_fonts()
-    try:
-        resp = requests.get(image_url, timeout=30)
-        resp.raise_for_status()
-    except Exception as e:
-        raise HTTPException(status_code=400, detail=f"Failed to download image: {e}")
-    img = Image.open(io.BytesIO(resp.content))
-    w, h = img.size
-    img = apply_gradient_overlay(img)
-    draw = ImageDraw.Draw(img)
-    headline_top = draw_category_block(draw, tema, w, h)
-    headline = headline.upper()
-    font, lines, line_h, text_top, text_bottom = fit_headline(draw, headline, w, h, headline_top)
-    draw_headline(draw, font, lines, line_h, text_top, text_bottom, w)
-    draw_brand_handle(draw, brand_handle, w, h)
-    buf = io.BytesIO()
-    img.save(buf, format="JPEG", quality=94)
-    return buf.getvalue()
-
-
 class ComposeRequest(BaseModel):
     image_url: str
     estrategista_output: str
     brand_handle: str = "@agentejuridico"
 
 
+def _compose_image(req: ComposeRequest) -> dict:
+    """Core composition logic shared by /compose and /compose/auto."""
+    headline = extract_headline(req.estrategista_output)
+    tema = extract_tema(req.estrategista_output)
+    ensure_fonts()
+
+    try:
+        resp = requests.get(req.image_url, timeout=30)
+        resp.raise_for_status()
+    except Exception as e:
+        raise HTTPException(status_code=400, detail=f"Failed to download image: {e}")
+
+    img = Image.open(io.BytesIO(resp.content))
+    w, h = img.size
+    img = apply_gradient_overlay(img)
+    draw = ImageDraw.Draw(img)
+
+    headline_top = draw_category_block(draw, tema, w, h)
+    headline = headline.upper()
+    font, lines, line_h, text_top, text_bottom = fit_headline(draw, headline, w, h, headline_top)
+    draw_headline(draw, font, lines, line_h, text_top, text_bottom, w)
+    draw_brand_handle(draw, req.brand_handle, w, h)
+
+    buf = io.BytesIO()
+    img.save(buf, format="JPEG", quality=94)
+    composed_url = upload_imgbb(buf.getvalue())
+    return {"composed_url": composed_url, "lines_rendered": lines}
+
+
 @app.post("/compose")
 def compose(req: ComposeRequest):
-    image_bytes = _compose_image(req.image_url, req.estrategista_output, req.brand_handle)
-    composed_url = store_image(image_bytes)
-    return {"composed_url": composed_url, "status": "ok"}
+    return _compose_image(req)
 
 
 @app.post("/compose/auto")
 def compose_auto(req: ComposeRequest):
-    image_bytes = _compose_image(req.image_url, req.estrategista_output, req.brand_handle)
-    composed_url = store_image(image_bytes)
-    return {"composed_url": composed_url, "status": "ok"}
+    return _compose_image(req)
 
 
 @app.get("/health")
 def health():
-    return {"status": "ok", "version": "2.9"}
+    return {"status": "ok", "version": "2.10"}
